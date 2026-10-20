@@ -27,7 +27,7 @@ import { Store } from './types';
 import { getMerchantStores, getStoreById } from './services/storeService';
 
 function AppContent() {
-  const { currentUser, role } = useAuth();
+  const { currentUser, role, isAdmin } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
     return hash || '/';
@@ -270,6 +270,23 @@ function AppContent() {
 
     // 12. Admin Dashboard: /admin
     if (pathname === '/admin') {
+      if (!isAdmin) {
+        return (
+          <section className="mx-auto flex min-h-[55vh] max-w-2xl flex-col items-center justify-center px-6 py-12 text-center">
+            <h1 className="text-2xl font-bold text-slate-900">Acesso restrito</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Esta área é exclusiva da conta administrativa autorizada.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="mt-6 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Voltar ao início
+            </button>
+          </section>
+        );
+      }
       return (
         <AdminDashboard
           onSelectOrder={(orderId: string) => navigate(`/pedido/${orderId}`)}
