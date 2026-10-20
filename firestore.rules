@@ -29,11 +29,58 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'mapwiser@gmail.com';
+      return isSignedIn() &&
+        request.auth.token.email == 'mapwiser@gmail.com' &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
     function isStoreOwner(storeId) {
       return isSignedIn() && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isPublishedStore(storeId) {
+      let store = get(/databases/$(database)/documents/stores/$(storeId)).data;
+      return store.status == 'approved' && store.published == true;
+    }
+
+    function isValidMerchantOrderTransition(fromStatus, toStatus, fulfillmentMethod) {
+      return
+        (fromStatus == 'pending_confirmation' && toStatus in ['accepted', 'cancelled']) ||
+        (fromStatus == 'accepted' && toStatus in ['preparing', 'cancelled']) ||
+        (fromStatus == 'preparing' &&
+          ((fulfillmentMethod == 'delivery' && toStatus == 'out_for_delivery') ||
+           (fulfillmentMethod == 'pickup' && toStatus == 'ready_for_pickup') ||
+           toStatus == 'cancelled')) ||
+        (fromStatus in ['ready_for_pickup', 'out_for_delivery'] && toStatus in ['delivered', 'cancelled']);
+    }
+
+    function hasValidOrderHistoryAppend() {
+      let previousLength =
+        existing().keys().hasAny(['statusHistory']) && existing().statusHistory is list
+          ? existing().statusHistory.size()
+          : 0;
+      let newHistory = incoming().statusHistory;
+      return newHistory is list &&
+        newHistory.size() == previousLength + 1 &&
+        newHistory[newHistory.size() - 1].actorUid == request.auth.uid &&
+        newHistory[newHistory.size() - 1].status == incoming().orderStatus &&
+        newHistory[newHistory.size() - 1].timestamp is string;
+    }
+
+    function hasConsistentOrderHistoryChange() {
+      let changed = incoming().diff(existing()).affectedKeys();
+      return !changed.hasAny(['orderStatus', 'statusHistory']) ||
+        (changed.hasAll(['orderStatus', 'statusHistory']) && hasValidOrderHistoryAppend());
+    }
+
+    function hasValidMerchantPaymentChange() {
+      let changed = incoming().diff(existing()).affectedKeys();
+      return !changed.hasAny(['paymentStatus']) ||
+        incoming().paymentStatus == existing().paymentStatus ||
+        (incoming().paymentStatus == 'paid' &&
+         incoming().orderStatus in ['delivered', 'completed'] &&
+         existing().paymentStatus == 'pending');
     }
 
     // USERS COLLECTION
@@ -54,7 +101,9 @@ service cloud.firestore {
 
     // STORES COLLECTION
     match /stores/{storeId} {
-      allow read: if true;
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.ownerUid == request.auth.uid) ||
+        (resource.data.status == 'approved' && resource.data.published == true);
       allow create: if (
         isSignedIn() &&
         isValidId(storeId) &&
@@ -66,6 +115,8 @@ service cloud.firestore {
         isSignedIn() &&
         existing().ownerUid == request.auth.uid &&
         incoming().ownerUid == existing().ownerUid &&
+        // Aggregated public reputation is derived from approved reviews, not merchant input.
+        !incoming().diff(existing()).affectedKeys().hasAny(['rating', 'reviewCount']) &&
         // Merchant cannot self-approve or publish unapproved store
         (!incoming().diff(existing()).affectedKeys().hasAny(['status', 'published']) ||
          (incoming().status in ['draft', 'pending_review'] && incoming().published == false))
@@ -81,7 +132,7 @@ service cloud.firestore {
 
     // PRODUCTS COLLECTION
     match /products/{productId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(resource.data.storeId) || isPublishedStore(resource.data.storeId);
       allow create: if (isSignedIn() && isValidId(productId) && isStoreOwner(incoming().storeId)) || isAdmin();
       allow update: if (isSignedIn() && isStoreOwner(existing().storeId) && incoming().storeId == existing().storeId) || isAdmin();
       allow delete: if (isSignedIn() && isStoreOwner(existing().storeId)) || isAdmin();
@@ -89,35 +140,32 @@ service cloud.firestore {
 
     // ORDERS COLLECTION
     match /orders/{orderId} {
-      allow get: if isSignedIn() && (
-        resource.data.customerUid == request.auth.uid ||
-        (resource.data.storeOwnerUid != null && resource.data.storeOwnerUid == request.auth.uid) ||
-        isStoreOwner(resource.data.storeId) ||
-        isAdmin()
+      allow get, list: if isAdmin() || (
+        isSignedIn() && (
+          resource.data.customerUid == request.auth.uid ||
+          isStoreOwner(resource.data.storeId)
+        )
       );
-      allow list: if isSignedIn() && (
-        resource.data.customerUid == request.auth.uid ||
-        (resource.data.storeOwnerUid != null && resource.data.storeOwnerUid == request.auth.uid) ||
-        isStoreOwner(resource.data.storeId) ||
-        isAdmin()
-      );
-      allow create: if isSignedIn() &&
-        isValidId(orderId) &&
-        incoming().customerUid == request.auth.uid &&
-        incoming().orderStatus == 'pending_confirmation';
+      // Order totals and item prices currently come from the browser. Keep direct client creation
+      // disabled until an authenticated server endpoint recalculates prices from Firestore catalog data.
+      allow create: if false;
       allow update: if (
-        // Store owner advancing order workflow
-        (isSignedIn() && (
-           (existing().storeOwnerUid != null && existing().storeOwnerUid == request.auth.uid) ||
-           isStoreOwner(existing().storeId)
-         ) &&
+        // Store owner must follow the configured order workflow and cannot forge history or payment.
+        (isSignedIn() &&
+         isStoreOwner(existing().storeId) &&
          !(existing().orderStatus in ['delivered', 'completed', 'cancelled']) &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'paymentStatus', 'updatedAt', 'notes'])) ||
-        // Customer cancelling pending order
-        (isSignedIn() && existing().customerUid == request.auth.uid &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'paymentStatus', 'updatedAt', 'notes']) &&
+         (!incoming().diff(existing()).affectedKeys().hasAny(['orderStatus']) ||
+          isValidMerchantOrderTransition(existing().orderStatus, incoming().orderStatus, existing().fulfillmentMethod)) &&
+         hasConsistentOrderHistoryChange() &&
+         hasValidMerchantPaymentChange()) ||
+        // Customer may cancel only before the store accepts the order and must append their own history entry.
+        (isSignedIn() &&
+         existing().customerUid == request.auth.uid &&
          existing().orderStatus == 'pending_confirmation' &&
          incoming().orderStatus == 'cancelled' &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'cancellationReason', 'updatedAt'])) ||
+         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'cancellationReason', 'updatedAt']) &&
+         hasConsistentOrderHistoryChange()) ||
         isAdmin()
       );
       allow delete: if isAdmin();
@@ -125,9 +173,31 @@ service cloud.firestore {
 
     // REVIEWS COLLECTION
     match /reviews/{reviewId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      // Public queries must constrain status to approved; authors can still read their own moderation state.
+      allow get, list: if isAdmin() ||
+        (isSignedIn() && resource.data.customerUid == request.auth.uid) ||
+        resource.data.status == 'approved';
+      allow create: if isSignedIn() &&
+        incoming().customerUid == request.auth.uid &&
+        incoming().storeId is string &&
+        incoming().status == 'pending' &&
+        incoming().rating is int &&
+        incoming().rating >= 1 && incoming().rating <= 5 &&
+        incoming().comment is string &&
+        incoming().comment.size() >= 3 && incoming().comment.size() <= 2000 &&
+        incoming().createdAt is string &&
+        incoming().updatedAt is string;
+      allow update: if isAdmin() ||
+        (isSignedIn() &&
+         existing().customerUid == request.auth.uid &&
+         incoming().customerUid == existing().customerUid &&
+         incoming().storeId == existing().storeId &&
+         incoming().createdAt == existing().createdAt &&
+         incoming().status == 'pending' &&
+         incoming().diff(existing()).affectedKeys().hasOnly([
+           'customerName', 'rating', 'comment', 'photoUrls', 'status', 'updatedAt'
+         ]));
+      allow delete: if isAdmin();
     }
 
     // AUDIT LOGS
@@ -139,28 +209,27 @@ service cloud.firestore {
 
     // ADMINS LIST
     match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && request.auth.token.email == 'mapwiser@gmail.com');
+      allow read, write: if isAdmin();
     }
 
     // STORE SUBCOLLECTIONS
     match /stores/{storeId}/categories/{categoryId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
     match /stores/{storeId}/addOnGroups/{groupId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
     match /stores/{storeId}/optionGroups/{groupId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
     match /stores/{storeId}/images/{imageId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
@@ -176,7 +245,7 @@ service cloud.firestore {
     // GLOBAL OPTION GROUP TEMPLATES (Universal Options & Addons Library)
     match /globalOptionGroupTemplates/{templateId} {
       allow read: if true;
-      allow write: if isSignedIn() || isAdmin();
+      allow write: if isAdmin();
     }
   }
 }

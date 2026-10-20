@@ -157,8 +157,12 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!store) return;
+    if (!currentUser) {
+      setReviewErrorMsg('Entre na sua conta Google para enviar uma avaliação.');
+      return;
+    }
     
-    const clientUid = getCustomerUid();
+    const clientUid = currentUser.uid;
     const finalName = reviewerName.trim() || 
       currentUser?.displayName || 
       (currentUser?.email ? currentUser.email.split('@')[0] : '') || 
@@ -195,7 +199,7 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
           const file = reviewImages[i];
           setReviewSuccessMsg(`Processando e enviando foto ${i + 1} de ${reviewImages.length}...`);
           try {
-            const url = await uploadReviewPhoto(file);
+            const url = await uploadReviewPhoto(file, store.id);
             uploadedUrls.push(url);
           } catch (uploadErr: any) {
             console.error(`Erro ao enviar foto ${file.name}:`, uploadErr);
@@ -206,7 +210,7 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
         photoUrls = [...photoUrls, ...uploadedUrls];
       }
 
-      setReviewSuccessMsg('Salvando e publicando sua avaliação...');
+      setReviewSuccessMsg('Salvando sua avaliação para moderação...');
 
       const saved = await submitOrUpdateReview({
         id: userReview?.id,
@@ -215,14 +219,13 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
         customerName: finalName.trim(),
         rating: reviewRating,
         comment: reviewComment.trim(),
-        status: 'approved',
         photoUrls: photoUrls.length > 0 ? photoUrls : undefined
       });
 
       setUserReview(saved);
       setReviewImages([]);
       setImagePreviews([]);
-      setReviewSuccessMsg('Sua avaliação foi enviada e publicada com sucesso!');
+      setReviewSuccessMsg('Sua avaliação foi enviada e aguarda aprovação.');
       
       // Refresh approved reviews immediately
       const updatedRevs = await getReviewsByStore(store.id);
@@ -378,9 +381,16 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
         if (opts.length > 0) {
           formattedOptionGroups.push({
             groupId: group.id,
+            ...(group.templateId ? { templateId: group.templateId } : {}),
             groupName: group.name,
             selectedOptions: opts.map(o => ({
-              id: o.id, name: o.name, price: o.price || 0, quantity: 1, imageUrl: o.imageUrl, groupName: group.name
+              id: o.id,
+              ...(o.templateOptionId ? { templateOptionId: o.templateOptionId } : {}),
+              name: o.name,
+              price: o.price || 0,
+              quantity: 1,
+              imageUrl: o.imageUrl,
+              groupName: group.name
             }))
           });
           opts.forEach(o => {

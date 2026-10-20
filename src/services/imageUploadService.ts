@@ -1,25 +1,28 @@
+import { auth } from '../lib/firebase';
 
 /**
- * Optimizes/resizes an image file client-side before uploading
- * to guarantee fast uploads, low data usage, and crisp quality.
+ * Optimizes a photo client-side, then sends it to the authenticated server endpoint.
+ * The server verifies the Firebase ID token, validates the actual image bytes, and stores it persistently.
  */
 export async function optimizeImageBeforeUpload(file: File, maxDimension = 1400, quality = 0.85): Promise<{ file: File; base64: string }> {
-  return new Promise((resolve) => {
-    // If not an image, resolve directly
-    if (!file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = () => resolve({ file, base64: reader.result as string });
-      reader.onerror = () => resolve({ file, base64: '' });
-      reader.readAsDataURL(file);
-      return;
-    }
+  if (!file.type.startsWith('image/')) {
+    throw new Error('Selecione um arquivo de imagem.');
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('A imagem original deve ter no máximo 10 MB.');
+  }
 
+  return new Promise((resolve, reject) => {
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
 
     img.onload = () => {
       URL.revokeObjectURL(objectUrl);
       let { width, height } = img;
+      if (!width || !height) {
+        reject(new Error('Não foi possível ler esta imagem.'));
+        return;
+      }
 
       if (width > maxDimension || height > maxDimension) {
         if (width > height) {
@@ -36,72 +39,70 @@ export async function optimizeImageBeforeUpload(file: File, maxDimension = 1400,
       canvas.height = height;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        const reader = new FileReader();
-        reader.onload = () => resolve({ file, base64: reader.result as string });
-        reader.readAsDataURL(file);
+        reject(new Error('Não foi possível processar esta imagem no dispositivo.'));
         return;
       }
 
       ctx.drawImage(img, 0, 0, width, height);
       const mimeType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
       const base64 = canvas.toDataURL(mimeType, quality);
-
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const optimizedFile = new File([blob], file.name, { type: mimeType });
-          resolve({ file: optimizedFile, base64 });
-        } else {
-          resolve({ file, base64 });
+      canvas.toBlob(blob => {
+        if (!blob) {
+          reject(new Error('Não foi possível otimizar esta imagem.'));
+          return;
         }
+        const optimizedFile = new File([blob], file.name, { type: mimeType });
+        if (optimizedFile.size > 5 * 1024 * 1024) {
+          reject(new Error('A foto continua maior que 5 MB após a otimização. Escolha outra imagem.'));
+          return;
+        }
+        resolve({ file: optimizedFile, base64 });
       }, mimeType, quality);
     };
 
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      const reader = new FileReader();
-      reader.onload = () => resolve({ file, base64: reader.result as string });
-      reader.readAsDataURL(file);
+      reject(new Error('O arquivo selecionado não é uma imagem válida.'));
     };
-
     img.src = objectUrl;
   });
 }
 
 /**
- * Uploads a review photo.
- * 1. Tries Firebase Storage first (with a short timeout).
- * 2. If Firebase Storage is unavailable/unconfigured, falls back to the server upload API.
- * Returns a real accessible image URL string.
+ * Uploads only to the authenticated server route. There is no unauthenticated or local-disk fallback.
  */
-export async function uploadReviewPhoto(file: File): Promise<string> {
-  const { file: processedFile, base64 } = await optimizeImageBeforeUpload(file);
-
-  // Fallback to server API directly for reliability
-  try {
-    const response = await fetch('/api/upload-review-photo', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        filename: processedFile.name,
-        base64,
-        contentType: processedFile.type,
-      }),
-    });
-
-    if (!response.ok) {
-      const errData = await response.json().catch(() => ({}));
-      throw new Error(errData.error || `Falha no upload (${response.status})`);
-    }
-
-    const data = await response.json();
-    if (data.url) {
-      return data.url;
-    }
-    throw new Error('Servidor não retornou uma URL válida.');
-  } catch (apiErr: any) {
-    console.error('Falha no upload da foto via servidor:', apiErr);
-    throw new Error(apiErr.message || 'Não foi possível enviar a foto. Tente novamente.');
+export async function uploadReviewPhoto(file: File, storeId: string): Promise<string> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Entre na sua conta Google antes de enviar fotos para a avaliação.');
   }
+  if (!storeId.trim()) {
+    throw new Error('Não foi possível identificar o estabelecimento desta avaliação.');
+  }
+
+  const { file: processedFile, base64 } = await optimizeImageBeforeUpload(file);
+  const token = await currentUser.getIdToken();
+
+  const response = await fetch('/api/upload-review-photo', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      storeId,
+      filename: processedFile.name,
+      base64,
+      contentType: processedFile.type,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(typeof data.error === 'string' ? data.error : `Falha no envio da foto (${response.status}).`);
+  }
+  if (typeof data.url !== 'string' || !data.url.startsWith('https://firebasestorage.googleapis.com/')) {
+    throw new Error('O servidor não retornou uma URL válida para a foto.');
+  }
+  return data.url;
 }

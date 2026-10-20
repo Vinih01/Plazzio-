@@ -24,33 +24,38 @@ import { MerchantFinancePage } from './features/merchant/MerchantFinancePage';
 import { SejaParceiroPage } from './features/commercial/SejaParceiroPage';
 import { AdminDashboard } from './features/admin/AdminDashboard';
 import { Store } from './types';
-import { DEMO_STORES } from './services/mockDemoData';
 import { getMerchantStores, getStoreById } from './services/storeService';
 
 function AppContent() {
-  const { currentUser, role } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
     return hash || '/';
   });
 
-  const [activeMerchantStore, setActiveMerchantStore] = useState<Store>(DEMO_STORES[0]);
+  const [activeMerchantStore, setActiveMerchantStore] = useState<Store | null>(null);
 
-  // Synchronize activeMerchantStore with the authenticated merchant's real stores
+  // Load only a store that belongs to the currently authenticated merchant.
   useEffect(() => {
-    if (currentUser?.uid) {
-      getMerchantStores(currentUser.uid).then(userStores => {
-        if (userStores.length > 0) {
-          // If current active store is a demo store or does not belong to user, select user's store
-          setActiveMerchantStore(prev => {
-            if (prev.ownerUid !== currentUser.uid) {
-              return userStores[0];
-            }
-            return prev;
-          });
-        }
-      });
+    let active = true;
+    if (!currentUser?.uid) {
+      setActiveMerchantStore(null);
+      return () => { active = false; };
     }
+
+    setActiveMerchantStore(null);
+    getMerchantStores(currentUser.uid)
+      .then(userStores => {
+        if (active) {
+          setActiveMerchantStore(userStores.find(store => store.ownerUid === currentUser.uid) || null);
+        }
+      })
+      .catch(error => {
+        console.warn('Não foi possível carregar os estabelecimentos do comerciante:', error);
+        if (active) setActiveMerchantStore(null);
+      });
+
+    return () => { active = false; };
   }, [currentUser?.uid]);
 
   // Sync hash changes
@@ -76,6 +81,38 @@ function AppContent() {
   const queryParams = new URLSearchParams(queryString || '');
 
   const renderCurrentView = () => {
+    const isMerchantPanelRoute = pathname === '/painel' ||
+      pathname === '/painel/pedidos' ||
+      pathname === '/painel/cardapio' ||
+      pathname === '/painel/loja' ||
+      pathname === '/painel/relatorios' ||
+      pathname === '/painel/financeiro';
+
+    if (isMerchantPanelRoute && (
+      !currentUser ||
+      !activeMerchantStore ||
+      activeMerchantStore.ownerUid !== currentUser.uid
+    )) {
+      return (
+        <section className="mx-auto flex min-h-[55vh] max-w-2xl flex-col items-center justify-center px-6 py-12 text-center">
+          <h1 className="text-2xl font-bold text-slate-900">Seu estabelecimento</h1>
+          <p className="mt-3 max-w-lg text-sm leading-6 text-slate-600">
+            Para acessar o painel, entre na conta proprietária de um estabelecimento cadastrado. Se ainda não cadastrou sua loja, comece pelo cadastro de parceiro.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate('/parceiro/cadastro')}
+            className="mt-6 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Cadastrar estabelecimento
+          </button>
+        </section>
+      );
+    }
+
+    // Type-safe after the panel-route ownership guard above. Non-panel routes don't consume this value.
+    const merchantStore = activeMerchantStore as Store;
+
     // 1. Storefront: /loja/:slug
     if (pathname.startsWith('/loja/')) {
       const slug = pathname.replace('/loja/', '');
@@ -161,8 +198,8 @@ function AppContent() {
     if (pathname === '/painel/pedidos') {
       return (
         <MerchantOrdersKanban
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
@@ -172,8 +209,8 @@ function AppContent() {
     if (pathname === '/painel/cardapio') {
       return (
         <MerchantMenuPage
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
@@ -183,7 +220,7 @@ function AppContent() {
     if (pathname === '/painel/loja') {
       return (
         <MerchantSettingsPage
-          store={activeMerchantStore}
+          store={merchantStore}
           onBackToDashboard={() => navigate('/painel')}
           onStoreUpdated={(updated) => setActiveMerchantStore(updated)}
         />
@@ -194,8 +231,8 @@ function AppContent() {
     if (pathname === '/painel/relatorios') {
       return (
         <MerchantReportsPage
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
@@ -205,8 +242,8 @@ function AppContent() {
     if (pathname === '/painel/financeiro') {
       return (
         <MerchantFinancePage
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
@@ -216,7 +253,7 @@ function AppContent() {
     if (pathname === '/painel') {
       return (
         <MerchantDashboard
-          activeStore={activeMerchantStore}
+          activeStore={merchantStore}
           onSelectStore={(st) => setActiveMerchantStore(st)}
           onNavigateTab={(tab) => {
             if (tab === 'kanban') navigate('/painel/pedidos');
@@ -233,6 +270,23 @@ function AppContent() {
 
     // 12. Admin Dashboard: /admin
     if (pathname === '/admin') {
+      if (!isAdmin) {
+        return (
+          <section className="mx-auto flex min-h-[55vh] max-w-2xl flex-col items-center justify-center px-6 py-12 text-center">
+            <h1 className="text-2xl font-bold text-slate-900">Acesso restrito</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Esta área é exclusiva da conta administrativa autorizada.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/')}
+              className="mt-6 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Voltar ao início
+            </button>
+          </section>
+        );
+      }
       return (
         <AdminDashboard
           onSelectOrder={(orderId: string) => navigate(`/pedido/${orderId}`)}

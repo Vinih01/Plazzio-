@@ -1,0 +1,18 @@
+{
+  "firestore": [
+    {
+      "database": "ai-studio-plazzio-53fc4ac7-7ba6-47aa-8e6f-60e99c984f74",
+      "rules": "firestore.rules"
+    }
+  ],
+  "emulators": {
+    "firestore": {
+      "host": "127.0.0.1",
+      "port": 8080,
+      "websocketPort": 9150
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
+}

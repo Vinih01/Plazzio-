@@ -10,7 +10,7 @@ import {
   where,
   orderBy
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { 
   GlobalOptionGroupTemplate, 
   GlobalOptionItem, 
@@ -860,7 +860,10 @@ export async function getGlobalOptionTemplates(filters?: TemplateFilterParams): 
     // If database is not yet seeded, return the predefined in-memory templates and trigger idempotent seed
     if (templates.length === 0) {
       templates = [...DEFAULT_GLOBAL_OPTION_TEMPLATES];
-      seedGlobalOptionTemplates(false).catch(e => console.warn('Background auto-seed templates:', e));
+      // Only the platform administrator may initialize the shared catalog.
+      if (auth.currentUser?.email?.toLowerCase() === 'mapwiser@gmail.com') {
+        seedGlobalOptionTemplates(false).catch(e => console.warn('Background auto-seed templates:', e));
+      }
     }
 
     // Apply sorting

@@ -21,7 +21,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const ADMIN_BOOTSTRAP_EMAILS = ['mapwiser@gmail.com'];
+const ADMIN_EMAIL = 'mapwiser@gmail.com';
+
+function isAuthorizedAdminIdentity(user: FirebaseUser | null): boolean {
+  return Boolean(
+    user?.email &&
+    user.email.toLowerCase() === ADMIN_EMAIL &&
+    user.emailVerified &&
+    user.providerData.some(provider => provider.providerId === 'google.com')
+  );
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<FirebaseUser | null>(null);
@@ -35,19 +44,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
+        const authorizedAdmin = isAuthorizedAdminIdentity(user);
         try {
           const userDocRef = doc(db, 'users', user.uid);
           const snap = await getDoc(userDocRef);
 
-          let role: UserRole = 'consumer';
-          if (user.email && ADMIN_BOOTSTRAP_EMAILS.includes(user.email.toLowerCase())) {
-            role = 'admin';
-          }
+          let role: UserRole = authorizedAdmin ? 'admin' : 'consumer';
 
           if (snap.exists()) {
             const data = snap.data() as UserProfile;
             // Respect admin bootstrap
-            if (user.email && ADMIN_BOOTSTRAP_EMAILS.includes(user.email.toLowerCase())) {
+            if (authorizedAdmin) {
               data.role = 'admin';
               try {
                 await setDoc(doc(db, 'admins', user.uid), {
@@ -58,6 +65,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               } catch (adminErr) {
                 console.warn('Admin collection bootstrap notice:', adminErr);
               }
+            } else if (data.role === 'admin') {
+              // A legacy profile must never grant admin UI access without the verified Google identity.
+              data.role = 'consumer';
             }
             setUserProfile(data);
           } else {
@@ -91,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             uid: user.uid,
             name: user.displayName || 'Usuário',
             email: user.email || '',
-            role: user.email && ADMIN_BOOTSTRAP_EMAILS.includes(user.email.toLowerCase()) ? 'admin' : 'consumer',
+            role: authorizedAdmin ? 'admin' : 'consumer',
           });
         }
       } else {
@@ -119,22 +129,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserRole = async (newRole: UserRole) => {
     if (!currentUser) return;
+
+    const isActualAdmin = isAuthorizedAdminIdentity(currentUser);
+    if (newRole === 'admin' && !isActualAdmin) {
+      console.warn('Unauthorized attempt to promote a user to admin.');
+      return;
+    }
+
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
       await setDoc(userDocRef, { role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
       if (userProfile) {
         setUserProfile({ ...userProfile, role: newRole });
       }
-    } catch (e) {
-      console.warn('Update role error:', e);
-      if (userProfile) {
-        setUserProfile({ ...userProfile, role: newRole });
-      }
+    } catch (error) {
+      // Keep the existing trusted profile state if Firestore rejects the change.
+      console.warn('Update role error:', error);
     }
   };
 
   const simulateRole = (newRole: UserRole) => {
-    const isActualAdmin = Boolean(currentUser?.email && currentUser.email.toLowerCase() === 'mapwiser@gmail.com');
+    const isActualAdmin = isAuthorizedAdminIdentity(currentUser);
     if (!isActualAdmin) {
       console.warn('Unauthorized attempt to simulate role.');
       return;
@@ -142,8 +157,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSimulatedRole(newRole);
   };
 
-  const isActualAdmin = Boolean(currentUser?.email && currentUser.email.toLowerCase() === 'mapwiser@gmail.com');
-  const effectiveRole: UserRole = isActualAdmin ? (simulatedRole || 'admin') : (userProfile?.role || 'consumer');
+  const isActualAdmin = isAuthorizedAdminIdentity(currentUser);
+  const storedRole = userProfile?.role === 'admin' && !isActualAdmin
+    ? 'consumer'
+    : (userProfile?.role || 'consumer');
+  const effectiveRole: UserRole = isActualAdmin ? (simulatedRole || 'admin') : storedRole;
 
   return (
     <AuthContext.Provider
