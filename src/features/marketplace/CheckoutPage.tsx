@@ -75,6 +75,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
     );
   }
 
+  const acceptedPaymentMethods = Array.isArray(currentStore.acceptedPaymentMethods) ? currentStore.acceptedPaymentMethods : [];
   const effectiveDeliveryFee = fulfillment === 'delivery' ? deliveryFee : 0;
   const effectiveTotal = subtotal + effectiveDeliveryFee;
 
@@ -101,8 +102,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
     }
 
     if (fulfillment === 'delivery') {
-      if (!street.trim() || !number.trim() || !neighborhood.trim()) {
-        setErrorMsg('Por favor, preencha o endereço completo de entrega.');
+      if (!street.trim() || !number.trim() || !neighborhood.trim() || !city.trim() || !state.trim() || !zipCode.trim()) {
+        setErrorMsg('Preencha rua, número, bairro, cidade, estado e CEP do endereço de entrega.');
         return;
       }
     }
@@ -395,8 +396,14 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
                 O pagamento é feito diretamente ao estabelecimento no recebimento ou via chave Pix da loja.
               </p>
 
+              {acceptedPaymentMethods.length === 0 && (
+                <div className="p-3 rounded-lg border border-amber-200 bg-amber-50 text-xs text-amber-900">
+                  Este estabelecimento ainda não configurou as formas de pagamento. Entre em contato com a loja para concluir o pedido.
+                </div>
+              )}
+
               <div className="space-y-2">
-                {currentStore.acceptedPaymentMethods.includes('pix_direct') && (
+                {acceptedPaymentMethods.includes('pix_direct') && (
                   <label className={`block p-3.5 rounded-lg border text-xs cursor-pointer transition-colors ${
                     paymentMethod === 'pix_direct' ? 'border-orange-500 bg-orange-50/40' : 'border-slate-200 hover:bg-slate-50'
                   }`}>
@@ -444,7 +451,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
                   </label>
                 )}
 
-                {currentStore.acceptedPaymentMethods.includes('card_on_delivery') && (
+                {acceptedPaymentMethods.includes('card_on_delivery') && (
                   <label className={`block p-3.5 rounded-lg border text-xs cursor-pointer transition-colors ${
                     paymentMethod === 'card_on_delivery' ? 'border-orange-500 bg-orange-50/40' : 'border-slate-200 hover:bg-slate-50'
                   }`}>
@@ -465,7 +472,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
                   </label>
                 )}
 
-                {currentStore.acceptedPaymentMethods.includes('money_on_delivery') && (
+                {acceptedPaymentMethods.includes('money_on_delivery') && (
                   <label className={`block p-3.5 rounded-lg border text-xs cursor-pointer transition-colors ${
                     paymentMethod === 'money_on_delivery' ? 'border-orange-500 bg-orange-50/40' : 'border-slate-200 hover:bg-slate-50'
                   }`}>
