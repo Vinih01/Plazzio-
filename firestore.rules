@@ -36,6 +36,11 @@ service cloud.firestore {
       return isSignedIn() && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid;
     }
 
+    function isPublishedStore(storeId) {
+      let store = get(/databases/$(database)/documents/stores/$(storeId)).data;
+      return store.status == 'approved' && store.published == true;
+    }
+
     // USERS COLLECTION
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
@@ -54,7 +59,9 @@ service cloud.firestore {
 
     // STORES COLLECTION
     match /stores/{storeId} {
-      allow read: if true;
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.ownerUid == request.auth.uid) ||
+        (resource.data.status == 'approved' && resource.data.published == true);
       allow create: if (
         isSignedIn() &&
         isValidId(storeId) &&
@@ -81,7 +88,7 @@ service cloud.firestore {
 
     // PRODUCTS COLLECTION
     match /products/{productId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(resource.data.storeId) || isPublishedStore(resource.data.storeId);
       allow create: if (isSignedIn() && isValidId(productId) && isStoreOwner(incoming().storeId)) || isAdmin();
       allow update: if (isSignedIn() && isStoreOwner(existing().storeId) && incoming().storeId == existing().storeId) || isAdmin();
       allow delete: if (isSignedIn() && isStoreOwner(existing().storeId)) || isAdmin();
@@ -89,28 +96,23 @@ service cloud.firestore {
 
     // ORDERS COLLECTION
     match /orders/{orderId} {
-      allow get: if isSignedIn() && (
-        resource.data.customerUid == request.auth.uid ||
-        (resource.data.storeOwnerUid != null && resource.data.storeOwnerUid == request.auth.uid) ||
-        isStoreOwner(resource.data.storeId) ||
-        isAdmin()
-      );
-      allow list: if isSignedIn() && (
-        resource.data.customerUid == request.auth.uid ||
-        (resource.data.storeOwnerUid != null && resource.data.storeOwnerUid == request.auth.uid) ||
-        isStoreOwner(resource.data.storeId) ||
-        isAdmin()
+      allow get, list: if isAdmin() || (
+        isSignedIn() && (
+          resource.data.customerUid == request.auth.uid ||
+          isStoreOwner(resource.data.storeId)
+        )
       );
       allow create: if isSignedIn() &&
         isValidId(orderId) &&
         incoming().customerUid == request.auth.uid &&
+        incoming().storeId is string &&
+        incoming().storeOwnerUid == get(/databases/$(database)/documents/stores/$(incoming().storeId)).data.ownerUid &&
+        isPublishedStore(incoming().storeId) &&
         incoming().orderStatus == 'pending_confirmation';
       allow update: if (
         // Store owner advancing order workflow
-        (isSignedIn() && (
-           (existing().storeOwnerUid != null && existing().storeOwnerUid == request.auth.uid) ||
-           isStoreOwner(existing().storeId)
-         ) &&
+        (isSignedIn() &&
+         isStoreOwner(existing().storeId) &&
          !(existing().orderStatus in ['delivered', 'completed', 'cancelled']) &&
          incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'paymentStatus', 'updatedAt', 'notes'])) ||
         // Customer cancelling pending order
@@ -167,22 +169,22 @@ service cloud.firestore {
 
     // STORE SUBCOLLECTIONS
     match /stores/{storeId}/categories/{categoryId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
     match /stores/{storeId}/addOnGroups/{groupId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
     match /stores/{storeId}/optionGroups/{groupId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
     match /stores/{storeId}/images/{imageId} {
-      allow read: if true;
+      allow read: if isAdmin() || isStoreOwner(storeId) || isPublishedStore(storeId);
       allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
     }
 
