@@ -134,6 +134,14 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
   await assertFails(getDoc(doc(anonymousDb, 'stores/pending-store')));
   await assertSucceeds(getDoc(doc(anonymousDb, 'products/live-product')));
   await assertFails(getDoc(doc(anonymousDb, 'products/pending-product')));
+  await assertSucceeds(getDocs(query(
+    collection(anonymousDb, 'products'),
+    where('storeId', '==', 'live-store'),
+  )));
+  await assertFails(getDocs(query(
+    collection(anonymousDb, 'products'),
+    where('storeId', '==', 'pending-store'),
+  )));
 
   // Store owners can manage their own store, but cannot approve or publish themselves.
   await assertFails(updateDoc(doc(merchantDb, 'stores/live-store'), {
@@ -229,6 +237,11 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
   await assertSucceeds(getDoc(doc(customerOneDb, 'orders/order-customer-one')));
   await assertFails(getDoc(doc(customerOneDb, 'orders/order-customer-two')));
   await assertSucceeds(getDoc(doc(merchantDb, 'orders/order-customer-two')));
+  const merchantOrders = await assertSucceeds(getDocs(query(
+    collection(merchantDb, 'orders'),
+    where('storeId', '==', 'live-store'),
+  )));
+  assert.equal(merchantOrders.size, 2);
   await assertFails(getDocs(collection(customerOneDb, 'orders')));
   const ownOrders = await assertSucceeds(getDocs(query(
     collection(customerOneDb, 'orders'),
