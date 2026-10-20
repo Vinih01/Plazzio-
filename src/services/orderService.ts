@@ -3,7 +3,6 @@ import {
   doc, 
   getDoc, 
   getDocs, 
-  setDoc, 
   updateDoc, 
   query, 
   where,
@@ -61,13 +60,9 @@ export function validateAndNormalizeOrder(order: Order): Order {
 }
 
 export async function createOrder(order: Order): Promise<void> {
-  const sanitizedOrder = validateAndNormalizeOrder(order);
-  try {
-    const docRef = doc(db, ORDERS_COLLECTION, sanitizedOrder.id);
-    await setDoc(docRef, sanitizedOrder);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, `${ORDERS_COLLECTION}/${sanitizedOrder.id}`);
-  }
+  // Keep client-side shape validation for early feedback, but never persist browser-calculated prices.
+  validateAndNormalizeOrder(order);
+  throw new Error('O checkout seguro ainda não está configurado. Nenhum pedido foi registrado; tente novamente mais tarde.');
 }
 
 export async function getOrderById(orderId: string): Promise<Order | null> {
