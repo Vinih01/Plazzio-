@@ -72,13 +72,19 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
         id: 'order-customer-one',
         customerUid: 'customer-one',
         storeId: 'live-store',
+        fulfillmentMethod: 'delivery',
+        paymentStatus: 'pending',
         orderStatus: 'pending_confirmation',
+        statusHistory: [{ status: 'pending_confirmation', actorUid: 'customer-one', timestamp: '2026-10-20T12:00:00.000Z' }],
       }),
       setDoc(doc(firestore, 'orders/order-customer-two'), {
         id: 'order-customer-two',
         customerUid: 'customer-two',
         storeId: 'live-store',
+        fulfillmentMethod: 'delivery',
+        paymentStatus: 'pending',
         orderStatus: 'pending_confirmation',
+        statusHistory: [{ status: 'pending_confirmation', actorUid: 'customer-two', timestamp: '2026-10-20T12:00:00.000Z' }],
       }),
       setDoc(doc(firestore, 'reviews/review-pending'), {
         id: 'review-pending',
@@ -237,6 +243,45 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
   await assertSucceeds(getDoc(doc(customerOneDb, 'orders/order-customer-one')));
   await assertFails(getDoc(doc(customerOneDb, 'orders/order-customer-two')));
   await assertSucceeds(getDoc(doc(merchantDb, 'orders/order-customer-two')));
+
+  const forgedDeliveredHistory = [
+    { status: 'pending_confirmation', actorUid: 'customer-one', timestamp: '2026-10-20T12:00:00.000Z' },
+    { status: 'delivered', actorUid: 'merchant-live', timestamp: '2026-10-20T13:00:00.000Z' },
+  ];
+  await assertFails(updateDoc(doc(merchantDb, 'orders/order-customer-one'), {
+    orderStatus: 'delivered',
+    statusHistory: forgedDeliveredHistory,
+    paymentStatus: 'paid',
+    updatedAt: '2026-10-20T13:00:00.000Z',
+  }));
+
+  const forgedPaymentHistory = [
+    { status: 'pending_confirmation', actorUid: 'customer-two', timestamp: '2026-10-20T12:00:00.000Z' },
+    { status: 'accepted', actorUid: 'merchant-live', timestamp: '2026-10-20T13:00:00.000Z' },
+  ];
+  await assertFails(updateDoc(doc(merchantDb, 'orders/order-customer-two'), {
+    orderStatus: 'accepted',
+    statusHistory: forgedPaymentHistory,
+    paymentStatus: 'paid',
+    updatedAt: '2026-10-20T13:00:00.000Z',
+  }));
+
+  await assertSucceeds(updateDoc(doc(merchantDb, 'orders/order-customer-two'), {
+    orderStatus: 'accepted',
+    statusHistory: forgedPaymentHistory,
+    updatedAt: '2026-10-20T13:00:00.000Z',
+  }));
+
+  await assertSucceeds(updateDoc(doc(customerOneDb, 'orders/order-customer-one'), {
+    orderStatus: 'cancelled',
+    statusHistory: [
+      { status: 'pending_confirmation', actorUid: 'customer-one', timestamp: '2026-10-20T12:00:00.000Z' },
+      { status: 'cancelled', actorUid: 'customer-one', timestamp: '2026-10-20T13:00:00.000Z' },
+    ],
+    cancellationReason: 'Teste de cancelamento',
+    updatedAt: '2026-10-20T13:00:00.000Z',
+  }));
+
   const merchantOrders = await assertSucceeds(getDocs(query(
     collection(merchantDb, 'orders'),
     where('storeId', '==', 'live-store'),
