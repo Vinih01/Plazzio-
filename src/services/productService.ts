@@ -10,7 +10,6 @@ import {
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Product } from '../types';
-import { DEMO_PRODUCTS } from './mockDemoData';
 
 import { removeUndefinedFields } from '../lib/utils';
 import { getDefaultOptionGroupsForCategory } from './optionTemplateService';
@@ -24,46 +23,20 @@ export async function getProductsByStore(storeId: string): Promise<Product[]> {
       where('storeId', '==', storeId)
     );
     const snapshot = await getDocs(q);
-    const products: Product[] = [];
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data() as Product;
-      
-      // Auto-associate realistic default option groups if not configured yet
-      if (!data.optionGroups || data.optionGroups.length === 0) {
-        const defaults = getDefaultOptionGroupsForCategory(data.categoryName, data.name);
-        if (defaults.length > 0) {
-          data.optionGroups = defaults;
+    return snapshot.docs
+      .map(docSnap => {
+        const data = { ...docSnap.data(), id: docSnap.id } as Product;
+        // Resolve default groups for the UI only; final pricing is recalculated against Firestore by the server.
+        if (!data.optionGroups || data.optionGroups.length === 0) {
+          const defaults = getDefaultOptionGroupsForCategory(data.categoryName, data.name);
+          if (defaults.length > 0) data.optionGroups = defaults;
         }
-      }
-      
-      products.push(data);
-    });
-
-    if (products.length === 0) {
-      // Return matching demo products if any, resolving category options if needed
-      const matchingDemo = DEMO_PRODUCTS.filter(p => p.storeId === storeId).map(p => {
-        if (!p.optionGroups || p.optionGroups.length === 0) {
-          const defaults = getDefaultOptionGroupsForCategory(p.categoryName, p.name);
-          if (defaults.length > 0) {
-            return { ...p, optionGroups: defaults };
-          }
-        }
-        return p;
-      });
-      return matchingDemo;
-    }
-    return products;
+        return data;
+      })
+      .filter(product => product.available === true && product.isDemo !== true);
   } catch (error) {
-    console.warn('Fallback fetching products:', error);
-    return DEMO_PRODUCTS.filter(p => p.storeId === storeId).map(p => {
-      if (!p.optionGroups || p.optionGroups.length === 0) {
-        const defaults = getDefaultOptionGroupsForCategory(p.categoryName, p.name);
-        if (defaults.length > 0) {
-          return { ...p, optionGroups: defaults };
-        }
-      }
-      return p;
-    });
+    handleFirestoreError(error, OperationType.LIST, `${PRODUCTS_COLLECTION}?storeId=${storeId}`);
+    return [];
   }
 }
 
