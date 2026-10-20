@@ -24,20 +24,19 @@ export async function getReviewsByStore(storeId: string): Promise<Review[]> {
   try {
     const q = query(
       collection(db, REVIEWS_COLLECTION),
-      where('storeId', '==', storeId)
+      where('storeId', '==', storeId),
+      where('status', '==', 'approved')
     );
     const snapshot = await getDocs(q);
     const reviews: Review[] = [];
     
     snapshot.forEach(docSnap => {
       const data = docSnap.data() as Review;
-      if (data.status !== 'rejected') {
-        reviews.push({
-          ...data,
-          id: docSnap.id,
-          status: data.status || 'approved',
-        });
-      }
+      reviews.push({
+        ...data,
+        id: docSnap.id,
+        status: 'approved',
+      });
     });
 
     // Sort descending by createdAt
@@ -119,7 +118,7 @@ export async function submitOrUpdateReview(params: {
     comment: params.comment.trim(),
     photoUrls: params.photoUrls && params.photoUrls.length > 0 ? params.photoUrls : undefined,
     orderId: params.orderId || undefined,
-    status: params.status || 'approved', // Published immediately
+    status: 'pending', // Reviews are published only after admin moderation
     createdAt: originalCreatedAt,
     updatedAt: now,
   });
