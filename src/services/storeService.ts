@@ -16,7 +16,6 @@ import { removeUndefinedFields } from '../lib/utils';
 
 const STORES_COLLECTION = 'stores';
 const CATEGORIES_COLLECTION = 'categories';
-const PRODUCTS_COLLECTION = 'products';
 
 /**
  * Fetch approved and published stores for the public marketplace.
