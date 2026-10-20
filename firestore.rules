@@ -125,9 +125,31 @@ service cloud.firestore {
 
     // REVIEWS COLLECTION
     match /reviews/{reviewId} {
-      allow read: if true;
-      allow create: if true;
-      allow update, delete: if true;
+      // Public queries must constrain status to approved; authors can still read their own moderation state.
+      allow get, list: if isAdmin() ||
+        (isSignedIn() && resource.data.customerUid == request.auth.uid) ||
+        resource.data.status == 'approved';
+      allow create: if isSignedIn() &&
+        incoming().customerUid == request.auth.uid &&
+        incoming().storeId is string &&
+        incoming().status == 'pending' &&
+        incoming().rating is int &&
+        incoming().rating >= 1 && incoming().rating <= 5 &&
+        incoming().comment is string &&
+        incoming().comment.size() >= 3 && incoming().comment.size() <= 2000 &&
+        incoming().createdAt is string &&
+        incoming().updatedAt is string;
+      allow update: if isAdmin() ||
+        (isSignedIn() &&
+         existing().customerUid == request.auth.uid &&
+         incoming().customerUid == existing().customerUid &&
+         incoming().storeId == existing().storeId &&
+         incoming().createdAt == existing().createdAt &&
+         incoming().status == 'pending' &&
+         incoming().diff(existing()).affectedKeys().hasOnly([
+           'customerName', 'rating', 'comment', 'photoUrls', 'status', 'updatedAt'
+         ]));
+      allow delete: if isAdmin();
     }
 
     // AUDIT LOGS
