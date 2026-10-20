@@ -33,7 +33,8 @@ after(async () => {
 test('executa as regras reais do Firestore para avaliações, lojas, catálogo, templates e pedidos', async () => {
   await testEnv.clearFirestore();
 
-  await testEnv.withSecurityRulesDisabled(async ({ firestore }) => {
+  await testEnv.withSecurityRulesDisabled(async context => {
+    const firestore = context.firestore();
     await Promise.all([
       setDoc(doc(firestore, 'stores/live-store'), {
         id: 'live-store',
