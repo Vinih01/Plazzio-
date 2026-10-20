@@ -441,7 +441,7 @@ async function startServer() {
     }
 
     const authHeader = req.header('authorization') || '';
-    const tokenMatch = authHeader.match(/^Bearer\\s+(.+)$/i);
+    const tokenMatch = authHeader.match(/^Bearer\s+(.+)$/i);
     if (!tokenMatch) return res.status(401).json({ error: 'Entre na sua conta para atualizar as avaliações.' });
 
     let decodedToken;
