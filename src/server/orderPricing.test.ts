@@ -93,6 +93,7 @@ test('usa preço do template persistido, não o preço enviado pelo cliente', ()
   const request: CreateOrderItemRequest = {
     productId: product.id,
     quantity: 2,
+    selectedAddOns: [{ id: 'temporary-option-id', quantity: 1 }],
     selectedOptionGroups: [{
       groupId: 'temporary-ui-id',
       templateId: template.id,
@@ -101,6 +102,7 @@ test('usa preço do template persistido, não o preço enviado pelo cliente', ()
   };
 
   const line = calculateTrustedCartItem(product, request, new Map([[template.id, template]]), 'Loja teste', 0);
+  // The current UI also mirrors group choices into selectedAddOns. It must not charge twice.
   assert.equal(line.itemTotal, 24);
   assert.equal(line.selectedOptionGroups?.[0]?.selectedOptions[0]?.price, 2);
 });
@@ -114,4 +116,15 @@ test('identifica templates padrão adequados à categoria', () => {
     'acai-caldas-xaropes',
     'utensilios-descartaveis',
   ]);
+});
+
+test('rejects combo groups until their selection can be validated server-side', () => {
+  const product = basicProduct({
+    productType: 'combo',
+    comboGroups: [{ id: 'combo-items', name: 'Escolha os itens', minSelect: 1, maxSelect: 1, items: [] }],
+  });
+  assert.throws(
+    () => calculateTrustedCartItem(product, { productId: product.id, quantity: 1 }, new Map(), 'Loja teste', 0),
+    /checkout seguro/,
+  );
 });
