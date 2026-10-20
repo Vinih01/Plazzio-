@@ -112,6 +112,6 @@ test('identifica templates padrão adequados à categoria', () => {
     'acai-coberturas-crocantes',
     'acai-cremes-especiais',
     'acai-caldas-xaropes',
-    'utensilios_descartaveis',
+    'utensilios-descartaveis',
   ]);
 });
