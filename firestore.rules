@@ -29,7 +29,10 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isSignedIn() && request.auth.token.email == 'mapwiser@gmail.com';
+      return isSignedIn() &&
+        request.auth.token.email == 'mapwiser@gmail.com' &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.firebase.sign_in_provider == 'google.com';
     }
 
     function isStoreOwner(storeId) {
@@ -73,6 +76,8 @@ service cloud.firestore {
         isSignedIn() &&
         existing().ownerUid == request.auth.uid &&
         incoming().ownerUid == existing().ownerUid &&
+        // Aggregated public reputation is derived from approved reviews, not merchant input.
+        !incoming().diff(existing()).affectedKeys().hasAny(['rating', 'reviewCount']) &&
         // Merchant cannot self-approve or publish unapproved store
         (!incoming().diff(existing()).affectedKeys().hasAny(['status', 'published']) ||
          (incoming().status in ['draft', 'pending_review'] && incoming().published == false))
