@@ -121,6 +121,12 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
   const adminDb = testEnv.authenticatedContext('admin-mapwiser', {
     email: 'mapwiser@gmail.com',
     email_verified: true,
+    firebase: { sign_in_provider: 'google.com' },
+  }).firestore();
+  const impostorAdminDb = testEnv.authenticatedContext('impostor-mapwiser', {
+    email: 'mapwiser@gmail.com',
+    email_verified: true,
+    firebase: { sign_in_provider: 'password' },
   }).firestore();
 
   // Public catalog must be limited to stores that are approved and explicitly published.
@@ -137,6 +143,14 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
   await assertFails(updateDoc(doc(pendingOwnerDb, 'stores/pending-store'), {
     status: 'approved',
     published: true,
+  }));
+  await assertFails(updateDoc(doc(merchantDb, 'stores/live-store'), {
+    rating: 5,
+    reviewCount: 999,
+  }));
+  await assertSucceeds(updateDoc(doc(adminDb, 'stores/live-store'), {
+    rating: 4.5,
+    reviewCount: 2,
   }));
 
   // Reviews require authentication and cannot be self-published.
@@ -197,6 +211,11 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
     name: 'Template do administrador',
     active: true,
   }));
+  await assertFails(setDoc(doc(impostorAdminDb, 'globalOptionGroupTemplates/impostor-template'), {
+    id: 'impostor-template',
+    name: 'Tentativa com e-mail copiado, mas outro provedor',
+    active: true,
+  }));
 
   // Client-side order creation is intentionally disabled; customers can only read their own orders.
   await assertFails(setDoc(doc(customerOneDb, 'orders/forged-order'), {
@@ -210,6 +229,12 @@ test('executa as regras reais do Firestore para avaliações, lojas, catálogo, 
   await assertSucceeds(getDoc(doc(customerOneDb, 'orders/order-customer-one')));
   await assertFails(getDoc(doc(customerOneDb, 'orders/order-customer-two')));
   await assertSucceeds(getDoc(doc(merchantDb, 'orders/order-customer-two')));
+  await assertFails(getDocs(collection(customerOneDb, 'orders')));
+  const ownOrders = await assertSucceeds(getDocs(query(
+    collection(customerOneDb, 'orders'),
+    where('customerUid', '==', 'customer-one'),
+  )));
+  assert.equal(ownOrders.size, 1);
 
   // A non-admin cannot read administrative records or modify an approved review.
   await assertFails(getDoc(doc(customerOneDb, 'admins/admin-mapwiser')));
