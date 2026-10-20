@@ -102,7 +102,17 @@ test('usa preço do template persistido, não o preço enviado pelo cliente', ()
     }],
   };
 
-  const line = calculateTrustedCartItem(product, request, new Map([[template.id, template]]), 'Loja teste', 0);
+  const secondaryTemplate: GlobalOptionGroupTemplate = {
+    ...template,
+    id: 'bebidas-personalizacao',
+    name: 'Personalização',
+    required: false,
+    minSelect: 0,
+    maxSelect: 0,
+    options: [],
+  };
+  const templates = new Map([[template.id, template], [secondaryTemplate.id, secondaryTemplate]]);
+  const line = calculateTrustedCartItem(product, request, templates, 'Loja teste', 0);
   // The current UI also mirrors group choices into selectedAddOns. It must not charge twice.
   assert.equal(line.itemTotal, 24);
   assert.equal(line.selectedOptionGroups?.[0]?.selectedOptions[0]?.price, 2);
