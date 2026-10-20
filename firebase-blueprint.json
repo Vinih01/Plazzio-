@@ -1,0 +1,222 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with role-based access",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "role": { "type": "string", "enum": ["consumer", "merchant", "admin"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "name", "email", "role"]
+    },
+    "Store": {
+      "title": "Store",
+      "description": "Merchant business profile, operational settings and approval status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 150 },
+        "slug": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "businessType": { "type": "string", "maxLength": 60 },
+        "logoUrl": { "type": "string", "maxLength": 1000 },
+        "coverUrl": { "type": "string", "maxLength": 1000 },
+        "businessAddress": { "type": "string", "maxLength": 300 },
+        "city": { "type": "string", "maxLength": 100 },
+        "state": { "type": "string", "maxLength": 20 },
+        "zipCode": { "type": "string", "maxLength": 20 },
+        "serviceAreas": { "type": "array" },
+        "operatingHours": { "type": "object" },
+        "deliveryFee": { "type": "number" },
+        "minimumOrderValue": { "type": "number" },
+        "acceptedPaymentMethods": { "type": "array" },
+        "pixKey": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["draft", "pending_review", "approved", "rejected", "suspended"] },
+        "rejectionReason": { "type": "string", "maxLength": 500 },
+        "published": { "type": "boolean" },
+        "isDemo": { "type": "boolean" },
+        "rating": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "ownerUid", "name", "slug", "status"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Global marketplace categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 60 },
+        "slug": { "type": "string", "maxLength": 60 },
+        "iconKey": { "type": "string", "maxLength": 40 },
+        "active": { "type": "boolean" },
+        "sortOrder": { "type": "number" }
+      },
+      "required": ["id", "name", "slug", "active"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Store catalog item with options and pricing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "categoryId": { "type": "string", "maxLength": 64 },
+        "categoryName": { "type": "string", "maxLength": 80 },
+        "name": { "type": "string", "maxLength": 150 },
+        "description": { "type": "string", "maxLength": 1000 },
+        "imageUrl": { "type": "string", "maxLength": 1000 },
+        "basePrice": { "type": "number" },
+        "variants": { "type": "array" },
+        "addOns": { "type": "array" },
+        "available": { "type": "boolean" },
+        "isDemo": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "storeId", "name", "basePrice", "available"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Customer purchase with immutable snapshots and lifecycle states",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "orderNumber": { "type": "string", "maxLength": 40 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "storeSnapshot": { "type": "object" },
+        "customerSnapshot": { "type": "object" },
+        "itemsSnapshot": { "type": "array" },
+        "fulfillmentMethod": { "type": "string", "enum": ["delivery", "pickup"] },
+        "deliveryAddressSnapshot": { "type": "object" },
+        "subtotal": { "type": "number" },
+        "deliveryFee": { "type": "number" },
+        "discount": { "type": "number" },
+        "total": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["money_on_delivery", "card_on_delivery", "pix_direct"] },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "refunded"] },
+        "orderStatus": { "type": "string", "enum": ["pending_confirmation", "accepted", "preparing", "ready_for_pickup", "out_for_delivery", "delivered", "completed", "cancelled"] },
+        "notes": { "type": "string", "maxLength": 500 },
+        "cancellationReason": { "type": "string", "maxLength": 300 },
+        "statusHistory": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "orderNumber", "customerUid", "storeId", "total", "orderStatus", "paymentMethod"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Verified customer review for a completed order",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 100 },
+        "storeId": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "maxLength": 128 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "customerUid", "storeId", "orderId", "rating"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Platform administrative and security audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorEmail": { "type": "string", "maxLength": 200 },
+        "action": { "type": "string", "maxLength": 100 },
+        "entityType": { "type": "string", "maxLength": 60 },
+        "entityId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "actorUid", "action", "entityType", "entityId"]
+    },
+    "Admin": {
+      "title": "Admin",
+      "description": "Privileged platform administrative accounts",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "grantedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "GlobalOptionGroupTemplate": {
+      "title": "GlobalOptionGroupTemplate",
+      "description": "Standardized universal catalog of product options, toppings, creams, fillings and flavors",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 500 },
+        "category": { "type": "string", "maxLength": 80 },
+        "compatibleSegments": { "type": "array" },
+        "compatibleProductTypes": { "type": "array" },
+        "selectionType": { "type": "string", "enum": ["single", "multiple"] },
+        "minSelect": { "type": "number" },
+        "maxSelect": { "type": "number" },
+        "required": { "type": "boolean" },
+        "active": { "type": "boolean" },
+        "sortOrder": { "type": "number" },
+        "options": { "type": "array" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "compatibleSegments", "selectionType", "minSelect", "maxSelect", "required", "active", "options"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Private user profile and personal data"
+    },
+    "/stores/{storeId}": {
+      "schema": "Store",
+      "description": "Store profiles. Public reads when approved and published, owner full write, admin full control"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Global marketplace categories"
+    },
+    "/products/{productId}": {
+      "schema": "Product",
+      "description": "Store products. Public read when active, merchant owner write"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Customer purchase records. Read by customer and store owner. Transitions strictly enforced"
+    },
+    "/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Customer store reviews"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Administrative audit trail. Read/write by admins only"
+    },
+    "/admins/{adminId}": {
+      "schema": "Admin",
+      "description": "List of authorized administrator accounts"
+    },
+    "/globalOptionGroupTemplates/{templateId}": {
+      "schema": "GlobalOptionGroupTemplate",
+      "description": "Universal options, toppings, fillings, flavors and add-ons templates. Public read, admin-only write"
+    }
+  }
+}

@@ -1,0 +1,182 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'mapwiser@gmail.com';
+    }
+
+    function isStoreOwner(storeId) {
+      return isSignedIn() && get(/databases/$(database)/documents/stores/$(storeId)).data.ownerUid == request.auth.uid;
+    }
+
+    // USERS COLLECTION
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) &&
+        incoming().uid == request.auth.uid &&
+        (incoming().role in ['consumer', 'merchant'] || (incoming().role == 'admin' && isAdmin()));
+      allow update: if (
+        isOwner(userId) &&
+        !incoming().diff(existing()).affectedKeys().hasAny(['uid', 'createdAt']) &&
+        // Self-promotion to admin is mathematically blocked:
+        (incoming().role == existing().role || (existing().role != 'admin' && incoming().role in ['consumer', 'merchant']))
+      ) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // STORES COLLECTION
+    match /stores/{storeId} {
+      allow read: if true;
+      allow create: if (
+        isSignedIn() &&
+        isValidId(storeId) &&
+        incoming().ownerUid == request.auth.uid &&
+        (incoming().status in ['draft', 'pending_review']) &&
+        incoming().published == false
+      ) || isAdmin();
+      allow update: if (
+        isSignedIn() &&
+        existing().ownerUid == request.auth.uid &&
+        incoming().ownerUid == existing().ownerUid &&
+        // Merchant cannot self-approve or publish unapproved store
+        (!incoming().diff(existing()).affectedKeys().hasAny(['status', 'published']) ||
+         (incoming().status in ['draft', 'pending_review'] && incoming().published == false))
+      ) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // CATEGORIES COLLECTION
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // PRODUCTS COLLECTION
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if (isSignedIn() && isValidId(productId) && isStoreOwner(incoming().storeId)) || isAdmin();
+      allow update: if (isSignedIn() && isStoreOwner(existing().storeId) && incoming().storeId == existing().storeId) || isAdmin();
+      allow delete: if (isSignedIn() && isStoreOwner(existing().storeId)) || isAdmin();
+    }
+
+    // ORDERS COLLECTION
+    match /orders/{orderId} {
+      allow get: if isSignedIn() && (
+        resource.data.customerUid == request.auth.uid ||
+        (resource.data.storeOwnerUid != null && resource.data.storeOwnerUid == request.auth.uid) ||
+        isStoreOwner(resource.data.storeId) ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.customerUid == request.auth.uid ||
+        (resource.data.storeOwnerUid != null && resource.data.storeOwnerUid == request.auth.uid) ||
+        isStoreOwner(resource.data.storeId) ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() &&
+        isValidId(orderId) &&
+        incoming().customerUid == request.auth.uid &&
+        incoming().orderStatus == 'pending_confirmation';
+      allow update: if (
+        // Store owner advancing order workflow
+        (isSignedIn() && (
+           (existing().storeOwnerUid != null && existing().storeOwnerUid == request.auth.uid) ||
+           isStoreOwner(existing().storeId)
+         ) &&
+         !(existing().orderStatus in ['delivered', 'completed', 'cancelled']) &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'paymentStatus', 'updatedAt', 'notes'])) ||
+        // Customer cancelling pending order
+        (isSignedIn() && existing().customerUid == request.auth.uid &&
+         existing().orderStatus == 'pending_confirmation' &&
+         incoming().orderStatus == 'cancelled' &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'cancellationReason', 'updatedAt'])) ||
+        isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    // REVIEWS COLLECTION
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if true;
+      allow update, delete: if true;
+    }
+
+    // AUDIT LOGS
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false; // Append-only
+    }
+
+    // ADMINS LIST
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || (isSignedIn() && request.auth.token.email == 'mapwiser@gmail.com');
+    }
+
+    // STORE SUBCOLLECTIONS
+    match /stores/{storeId}/categories/{categoryId} {
+      allow read: if true;
+      allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
+    }
+
+    match /stores/{storeId}/addOnGroups/{groupId} {
+      allow read: if true;
+      allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
+    }
+
+    match /stores/{storeId}/optionGroups/{groupId} {
+      allow read: if true;
+      allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
+    }
+
+    match /stores/{storeId}/images/{imageId} {
+      allow read: if true;
+      allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
+    }
+
+    match /stores/{storeId}/customTypes/{typeId} {
+      allow read: if isSignedIn() && (isStoreOwner(storeId) || isAdmin());
+      allow write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
+    }
+
+    match /stores/{storeId}/expenses/{expenseId} {
+      allow read, write: if (isSignedIn() && isStoreOwner(storeId)) || isAdmin();
+    }
+
+    // GLOBAL OPTION GROUP TEMPLATES (Universal Options & Addons Library)
+    match /globalOptionGroupTemplates/{templateId} {
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
+    }
+  }
+}

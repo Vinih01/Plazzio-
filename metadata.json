@@ -1,0 +1,6 @@
+{
+  "name": "Plazzio",
+  "description": "Marketplace e plataforma de gestão para negócios locais",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
