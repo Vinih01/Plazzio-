@@ -129,17 +129,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateUserRole = async (newRole: UserRole) => {
     if (!currentUser) return;
+
+    const isActualAdmin = isAuthorizedAdminIdentity(currentUser);
+    if (newRole === 'admin' && !isActualAdmin) {
+      console.warn('Unauthorized attempt to promote a user to admin.');
+      return;
+    }
+
     try {
       const userDocRef = doc(db, 'users', currentUser.uid);
       await setDoc(userDocRef, { role: newRole, updatedAt: new Date().toISOString() }, { merge: true });
       if (userProfile) {
         setUserProfile({ ...userProfile, role: newRole });
       }
-    } catch (e) {
-      console.warn('Update role error:', e);
-      if (userProfile) {
-        setUserProfile({ ...userProfile, role: newRole });
-      }
+    } catch (error) {
+      // Keep the existing trusted profile state if Firestore rejects the change.
+      console.warn('Update role error:', error);
     }
   };
 
@@ -153,7 +158,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const isActualAdmin = isAuthorizedAdminIdentity(currentUser);
-  const effectiveRole: UserRole = isActualAdmin ? (simulatedRole || 'admin') : (userProfile?.role || 'consumer');
+  const storedRole = userProfile?.role === 'admin' && !isActualAdmin
+    ? 'consumer'
+    : (userProfile?.role || 'consumer');
+  const effectiveRole: UserRole = isActualAdmin ? (simulatedRole || 'admin') : storedRole;
 
   return (
     <AuthContext.Provider
