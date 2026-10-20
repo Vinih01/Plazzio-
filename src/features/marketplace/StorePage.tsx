@@ -157,8 +157,12 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!store) return;
+    if (!currentUser) {
+      setReviewErrorMsg('Entre na sua conta Google para enviar uma avaliação.');
+      return;
+    }
     
-    const clientUid = getCustomerUid();
+    const clientUid = currentUser.uid;
     const finalName = reviewerName.trim() || 
       currentUser?.displayName || 
       (currentUser?.email ? currentUser.email.split('@')[0] : '') || 
@@ -206,7 +210,7 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
         photoUrls = [...photoUrls, ...uploadedUrls];
       }
 
-      setReviewSuccessMsg('Salvando e publicando sua avaliação...');
+      setReviewSuccessMsg('Salvando sua avaliação para moderação...');
 
       const saved = await submitOrUpdateReview({
         id: userReview?.id,
@@ -215,14 +219,13 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
         customerName: finalName.trim(),
         rating: reviewRating,
         comment: reviewComment.trim(),
-        status: 'approved',
         photoUrls: photoUrls.length > 0 ? photoUrls : undefined
       });
 
       setUserReview(saved);
       setReviewImages([]);
       setImagePreviews([]);
-      setReviewSuccessMsg('Sua avaliação foi enviada e publicada com sucesso!');
+      setReviewSuccessMsg('Sua avaliação foi enviada e aguarda aprovação.');
       
       // Refresh approved reviews immediately
       const updatedRevs = await getReviewsByStore(store.id);
