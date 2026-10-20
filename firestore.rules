@@ -44,6 +44,45 @@ service cloud.firestore {
       return store.status == 'approved' && store.published == true;
     }
 
+    function isValidMerchantOrderTransition(fromStatus, toStatus, fulfillmentMethod) {
+      return
+        (fromStatus == 'pending_confirmation' && toStatus in ['accepted', 'cancelled']) ||
+        (fromStatus == 'accepted' && toStatus in ['preparing', 'cancelled']) ||
+        (fromStatus == 'preparing' &&
+          ((fulfillmentMethod == 'delivery' && toStatus == 'out_for_delivery') ||
+           (fulfillmentMethod == 'pickup' && toStatus == 'ready_for_pickup') ||
+           toStatus == 'cancelled')) ||
+        (fromStatus in ['ready_for_pickup', 'out_for_delivery'] && toStatus in ['delivered', 'cancelled']);
+    }
+
+    function hasValidOrderHistoryAppend() {
+      let previousLength =
+        existing().keys().hasAny(['statusHistory']) && existing().statusHistory is list
+          ? existing().statusHistory.size()
+          : 0;
+      let newHistory = incoming().statusHistory;
+      return newHistory is list &&
+        newHistory.size() == previousLength + 1 &&
+        newHistory[newHistory.size() - 1].actorUid == request.auth.uid &&
+        newHistory[newHistory.size() - 1].status == incoming().orderStatus &&
+        newHistory[newHistory.size() - 1].timestamp is string;
+    }
+
+    function hasConsistentOrderHistoryChange() {
+      let changed = incoming().diff(existing()).affectedKeys();
+      return !changed.hasAny(['orderStatus', 'statusHistory']) ||
+        (changed.hasAll(['orderStatus', 'statusHistory']) && hasValidOrderHistoryAppend());
+    }
+
+    function hasValidMerchantPaymentChange() {
+      let changed = incoming().diff(existing()).affectedKeys();
+      return !changed.hasAny(['paymentStatus']) ||
+        incoming().paymentStatus == existing().paymentStatus ||
+        (incoming().paymentStatus == 'paid' &&
+         incoming().orderStatus in ['delivered', 'completed'] &&
+         existing().paymentStatus == 'pending');
+    }
+
     // USERS COLLECTION
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
@@ -111,16 +150,22 @@ service cloud.firestore {
       // disabled until an authenticated server endpoint recalculates prices from Firestore catalog data.
       allow create: if false;
       allow update: if (
-        // Store owner advancing order workflow
+        // Store owner must follow the configured order workflow and cannot forge history or payment.
         (isSignedIn() &&
          isStoreOwner(existing().storeId) &&
          !(existing().orderStatus in ['delivered', 'completed', 'cancelled']) &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'paymentStatus', 'updatedAt', 'notes'])) ||
-        // Customer cancelling pending order
-        (isSignedIn() && existing().customerUid == request.auth.uid &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'paymentStatus', 'updatedAt', 'notes']) &&
+         (!incoming().diff(existing()).affectedKeys().hasAny(['orderStatus']) ||
+          isValidMerchantOrderTransition(existing().orderStatus, incoming().orderStatus, existing().fulfillmentMethod)) &&
+         hasConsistentOrderHistoryChange() &&
+         hasValidMerchantPaymentChange()) ||
+        // Customer may cancel only before the store accepts the order and must append their own history entry.
+        (isSignedIn() &&
+         existing().customerUid == request.auth.uid &&
          existing().orderStatus == 'pending_confirmation' &&
          incoming().orderStatus == 'cancelled' &&
-         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'cancellationReason', 'updatedAt'])) ||
+         incoming().diff(existing()).affectedKeys().hasOnly(['orderStatus', 'statusHistory', 'cancellationReason', 'updatedAt']) &&
+         hasConsistentOrderHistoryChange()) ||
         isAdmin()
       );
       allow delete: if isAdmin();
