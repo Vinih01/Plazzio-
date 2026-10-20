@@ -199,7 +199,7 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
           const file = reviewImages[i];
           setReviewSuccessMsg(`Processando e enviando foto ${i + 1} de ${reviewImages.length}...`);
           try {
-            const url = await uploadReviewPhoto(file);
+            const url = await uploadReviewPhoto(file, store.id);
             uploadedUrls.push(url);
           } catch (uploadErr: any) {
             console.error(`Erro ao enviar foto ${file.name}:`, uploadErr);
@@ -381,9 +381,16 @@ export const StorePage: React.FC<StorePageProps> = ({ slug, onBack }) => {
         if (opts.length > 0) {
           formattedOptionGroups.push({
             groupId: group.id,
+            ...(group.templateId ? { templateId: group.templateId } : {}),
             groupName: group.name,
             selectedOptions: opts.map(o => ({
-              id: o.id, name: o.name, price: o.price || 0, quantity: 1, imageUrl: o.imageUrl, groupName: group.name
+              id: o.id,
+              ...(o.templateOptionId ? { templateOptionId: o.templateOptionId } : {}),
+              name: o.name,
+              price: o.price || 0,
+              quantity: 1,
+              imageUrl: o.imageUrl,
+              groupName: group.name
             }))
           });
           opts.forEach(o => {
