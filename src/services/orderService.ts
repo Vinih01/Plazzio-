@@ -8,8 +8,8 @@ import {
   where,
   onSnapshot
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
-import { Order, OrderStatus, OrderStatusHistoryItem, PaymentStatus } from '../types';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { CreateOrderRequest, Order, OrderStatus, OrderStatusHistoryItem, PaymentStatus } from '../types';
 import { removeUndefinedFields } from '../lib/utils';
 
 const ORDERS_COLLECTION = 'orders';
@@ -59,10 +59,38 @@ export function validateAndNormalizeOrder(order: Order): Order {
   return sanitized;
 }
 
-export async function createOrder(order: Order): Promise<void> {
-  // Keep client-side shape validation for early feedback, but never persist browser-calculated prices.
-  validateAndNormalizeOrder(order);
-  throw new Error('O checkout seguro ainda não está configurado. Nenhum pedido foi registrado; tente novamente mais tarde.');
+export async function createOrder(request: CreateOrderRequest): Promise<Order> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) {
+    throw new Error('Entre na sua conta Google antes de finalizar o pedido.');
+  }
+
+  // The browser sends only product/option IDs and quantities. The server reconstructs
+  // every price, total, product snapshot, status and order ID from trusted Firestore data.
+  const token = await currentUser.getIdToken();
+  let response: Response;
+  try {
+    response = await fetch('/api/orders', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(request),
+    });
+  } catch {
+    throw new Error('Não foi possível conectar ao servidor seguro de pedidos. Nenhum pedido foi confirmado; tente novamente.');
+  }
+
+  const payload = await response.json().catch(() => ({})) as { order?: Order; error?: string };
+  if (!response.ok) {
+    throw new Error(payload.error || 'Não foi possível registrar o pedido com segurança.');
+  }
+  if (!payload.order || payload.order.customerUid !== currentUser.uid || !payload.order.id) {
+    throw new Error('O servidor não confirmou um pedido válido. Não considere a compra concluída.');
+  }
+
+  return payload.order;
 }
 
 export async function getOrderById(orderId: string): Promise<Order | null> {
