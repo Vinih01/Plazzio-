@@ -6,7 +6,8 @@ import type { CreateOrderItemRequest, GlobalOptionGroupTemplate, Product } from 
 const basicProduct = (overrides: Partial<Product> = {}): Product => ({
   id: 'product-1',
   storeId: 'store-1',
-  name: 'Hambúrguer',
+  name: 'Produto simples',
+  categoryName: 'Outros',
   description: '',
   basePrice: 10,
   available: true,
@@ -67,7 +68,7 @@ test('exige as opções obrigatórias configuradas no produto', () => {
 });
 
 test('usa preço do template persistido, não o preço enviado pelo cliente', () => {
-  const product = basicProduct({ categoryName: 'Bebidas' });
+  const product = basicProduct({ name: 'Refrigerante', categoryName: 'Bebidas' });
   const template: GlobalOptionGroupTemplate = {
     id: 'bebidas-embalagem-volume',
     name: 'Embalagem',
