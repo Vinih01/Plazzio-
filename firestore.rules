@@ -176,7 +176,7 @@ service cloud.firestore {
     // GLOBAL OPTION GROUP TEMPLATES (Universal Options & Addons Library)
     match /globalOptionGroupTemplates/{templateId} {
       allow read: if true;
-      allow write: if isSignedIn() || isAdmin();
+      allow write: if isAdmin();
     }
   }
 }
