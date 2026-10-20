@@ -31,7 +31,8 @@ export async function getApprovedStores(): Promise<Store[]> {
     try {
       const q = query(
         collection(db, STORES_COLLECTION),
-        where('published', '==', true)
+        where('published', '==', true),
+        where('status', '==', 'approved')
       );
       const snapshot = await getDocs(q);
       snapshot.forEach(docSnap => {
@@ -63,7 +64,9 @@ export async function getStoreBySlug(slug: string): Promise<Store | null> {
   try {
     const q = query(
       collection(db, STORES_COLLECTION),
-      where('slug', '==', slug)
+      where('slug', '==', slug),
+      where('published', '==', true),
+      where('status', '==', 'approved')
     );
     const snapshot = await getDocs(q);
     if (!snapshot.empty) {
