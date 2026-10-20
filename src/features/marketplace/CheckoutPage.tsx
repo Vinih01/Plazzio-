@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
-import { formatBRL, generateOrderNumber, formatWhatsAppMessage } from '../../lib/utils';
+import { formatBRL, formatWhatsAppMessage } from '../../lib/utils';
 import { createOrder } from '../../services/orderService';
-import { Order, PaymentMethod, FulfillmentMethod, DeliveryAddress } from '../../types';
+import { CreateOrderRequest, Order, PaymentMethod, FulfillmentMethod, DeliveryAddress } from '../../types';
 import { 
   ArrowLeft, 
   MapPin, 
@@ -28,21 +28,21 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
   const { currentUser, signInWithGoogle } = useAuth();
 
   const [fulfillment, setFulfillment] = useState<FulfillmentMethod>('delivery');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('pix_direct');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(() => currentStore?.acceptedPaymentMethods?.[0] || 'pix_direct');
   
   // Customer info
   const [customerName, setCustomerName] = useState(currentUser?.displayName || '');
-  const [customerPhone, setCustomerPhone] = useState('(11) 98765-4321');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState(currentUser?.email || '');
 
   // Address
-  const [street, setStreet] = useState('Rua das Américas');
-  const [number, setNumber] = useState('142');
-  const [complement, setComplement] = useState('Apto 42');
-  const [neighborhood, setNeighborhood] = useState('Bela Vista');
-  const [city, setCity] = useState(currentStore?.city || 'São Paulo');
-  const [state, setState] = useState(currentStore?.state || 'SP');
-  const [zipCode, setZipCode] = useState('01310-000');
+  const [street, setStreet] = useState('');
+  const [number, setNumber] = useState('');
+  const [complement, setComplement] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
+  const [city, setCity] = useState(currentStore?.city || '');
+  const [state, setState] = useState(currentStore?.state || '');
+  const [zipCode, setZipCode] = useState('');
   
   // Extra
   const [orderNotes, setOrderNotes] = useState('');
@@ -50,6 +50,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
   const [copiedPix, setCopiedPix] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [requestId] = useState(() => {
+    if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+    return `req_${Date.now()}_${Math.random().toString(36).slice(2, 14)}`;
+  });
 
   if (items.length === 0 || !currentStore) {
     return (
@@ -106,10 +110,6 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
     setSubmitting(true);
 
     try {
-      const orderId = `ord_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-      const orderNumber = generateOrderNumber();
-      const customerUid = currentUser.uid;
-
       const deliveryAddressSnapshot: DeliveryAddress | undefined = fulfillment === 'delivery' ? {
         street: street.trim(),
         number: number.trim(),
@@ -120,78 +120,55 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
         zipCode: zipCode.trim(),
       } : undefined;
 
-      const storeSnapshot = {
-        name: currentStore.name,
-        slug: currentStore.slug,
-        city: currentStore.city || 'São Paulo',
-        ...(currentStore.logoUrl ? { logoUrl: currentStore.logoUrl } : {}),
-        ...(currentStore.coverUrl ? { coverUrl: currentStore.coverUrl } : {}),
-        ...(currentStore.phone ? { phone: currentStore.phone } : {}),
-        ...(currentStore.pixKey ? { pixKey: currentStore.pixKey } : {}),
-        ...(currentStore.whatsappOrderNumber ? { whatsappOrderNumber: currentStore.whatsappOrderNumber } : {}),
-        ...(currentStore.businessAddress ? { neighborhood: currentStore.businessAddress } : {}),
-      };
-
-      const customerSnapshot = {
-        name: customerName.trim(),
-        email: customerEmail.trim() || currentUser?.email || 'cliente@plazzio.app',
-        ...(customerPhone.trim() ? { phone: customerPhone.trim() } : {}),
-      };
-
       const orderNotesCombined = [
         orderNotes.trim(),
         paymentMethod === 'money_on_delivery' && cashChange.trim() ? `Troco para: ${cashChange.trim()}` : ''
       ].filter(Boolean).join(' | ');
 
-      const newOrder: Order = {
-        id: orderId,
-        orderNumber,
-        customerUid,
+      const request: CreateOrderRequest = {
+        requestId,
         storeId: currentStore.id,
-        ...(currentStore.ownerUid ? { storeOwnerUid: currentStore.ownerUid } : {}),
-        storeSnapshot,
-        customerSnapshot,
-        itemsSnapshot: items.map(item => ({
-          ...item,
-          ...(item.imageUrl ? { imageUrl: item.imageUrl } : {}),
+        fulfillmentMethod: fulfillment,
+        ...(deliveryAddressSnapshot ? { deliveryAddress: deliveryAddressSnapshot } : {}),
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        paymentMethod,
+        ...(orderNotesCombined ? { notes: orderNotesCombined } : {}),
+        items: items.map(item => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          ...(item.selectedVariant?.id ? { selectedVariantId: item.selectedVariant.id } : {}),
+          selectedAddOns: item.selectedAddOns.map(addon => ({
+            id: addon.id,
+            quantity: addon.quantity,
+          })),
+          ...(item.selectedOptionGroups?.length ? {
+            selectedOptionGroups: item.selectedOptionGroups.map(group => ({
+              groupId: group.groupId,
+              ...(group.templateId ? { templateId: group.templateId } : {}),
+              selectedOptionIds: group.selectedOptions.map(option => ({
+                id: option.id,
+                ...(option.templateOptionId ? { templateOptionId: option.templateOptionId } : {}),
+              })),
+            })),
+          } : {}),
           ...(item.notes ? { notes: item.notes } : {}),
         })),
-        fulfillmentMethod: fulfillment,
-        ...(deliveryAddressSnapshot ? { deliveryAddressSnapshot } : {}),
-        subtotal,
-        deliveryFee: effectiveDeliveryFee,
-        discount: 0,
-        total: effectiveTotal,
-        paymentMethod,
-        paymentStatus: 'pending',
-        orderStatus: 'pending_confirmation',
-        ...(orderNotesCombined ? { notes: orderNotesCombined } : {}),
-        statusHistory: [
-          {
-            status: 'pending_confirmation',
-            timestamp: new Date().toISOString(),
-            actorUid: customerUid,
-            actorName: customerName.trim(),
-            note: 'Pedido enviado pelo cliente via Plazzio',
-          }
-        ],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
       };
 
-      // Persist to Cloud Firestore
-      await createOrder(newOrder);
+      // The server verifies the session and recomputes all prices from the live Firestore catalog.
+      const createdOrder = await createOrder(request);
 
-      // Save order ID locally for instant fallback access
-      localStorage.setItem(`plazzio_order_${orderId}`, JSON.stringify(newOrder));
+      // Cache only the server-confirmed order for the existing order page fallback.
+      localStorage.setItem(`plazzio_order_${createdOrder.id}`, JSON.stringify(createdOrder));
 
-      // Auto-open WhatsApp of the establishment
-      const rawPhone = currentStore.whatsappOrderNumber || currentStore.phone;
+      // Open the merchant WhatsApp with the server-confirmed prices and product details.
+      const rawPhone = createdOrder.storeSnapshot.whatsappOrderNumber || createdOrder.storeSnapshot.phone;
       if (rawPhone) {
         const cleanDigits = rawPhone.replace(/\D/g, '');
         if (cleanDigits.length >= 8) {
           const formattedPhone = cleanDigits.startsWith('55') ? cleanDigits : `55${cleanDigits}`;
-          const message = formatWhatsAppMessage(newOrder);
+          const message = formatWhatsAppMessage(createdOrder);
           const whatsappUrl = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`;
           try {
             window.open(whatsappUrl, '_blank');
@@ -202,7 +179,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({ onBack, onOrderSucce
       }
 
       clearCart();
-      onOrderSuccess(orderId);
+      onOrderSuccess(createdOrder.id);
     } catch (err: unknown) {
       console.error('Order placement error:', err);
       let message = 'Não foi possível registrar o pedido. Verifique os dados e tente novamente.';
