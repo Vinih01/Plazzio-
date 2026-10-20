@@ -209,8 +209,8 @@ function AppContent() {
     if (pathname === '/painel/cardapio') {
       return (
         <MerchantMenuPage
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
@@ -231,8 +231,8 @@ function AppContent() {
     if (pathname === '/painel/relatorios') {
       return (
         <MerchantReportsPage
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
@@ -242,8 +242,8 @@ function AppContent() {
     if (pathname === '/painel/financeiro') {
       return (
         <MerchantFinancePage
-          storeId={activeMerchantStore.id}
-          storeName={activeMerchantStore.name}
+          storeId={merchantStore.id}
+          storeName={merchantStore.name}
           onBackToDashboard={() => navigate('/painel')}
         />
       );
