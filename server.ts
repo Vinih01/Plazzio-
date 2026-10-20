@@ -430,6 +430,78 @@ async function startServer() {
     }
   });
 
+  // Recalculate public store aggregates from approved reviews using trusted server access.
+  app.post('/api/reviews/recalculate-rating', async (req: Request, res: Response) => {
+    let services: ReturnType<typeof getAdminServices>;
+    try {
+      services = getAdminServices();
+    } catch (error) {
+      console.error('Firebase Admin initialization failed for rating recalculation:', error);
+      return res.status(503).json({ error: 'O serviço de avaliações ainda não está configurado no servidor.' });
+    }
+
+    const authHeader = req.header('authorization') || '';
+    const tokenMatch = authHeader.match(/^Bearer\\s+(.+)$/i);
+    if (!tokenMatch) return res.status(401).json({ error: 'Entre na sua conta para atualizar as avaliações.' });
+
+    let decodedToken;
+    try {
+      decodedToken = await services.auth.verifyIdToken(tokenMatch[1]);
+    } catch {
+      return res.status(401).json({ error: 'Sua sessão expirou. Entre novamente e tente atualizar as avaliações.' });
+    }
+
+    try {
+      if (!isRecord(req.body)) throw new HttpError(400, 'Dados da loja inválidos.');
+      const storeId = validDocumentId(req.body.storeId, 'estabelecimento');
+      const storeRef = services.db.collection('stores').doc(storeId);
+      const storeSnapshot = await storeRef.get();
+      if (!storeSnapshot.exists) throw new HttpError(404, 'Estabelecimento não encontrado.');
+
+      const store = storeSnapshot.data() as Store;
+      const isGoogleAdmin = decodedToken.email === 'mapwiser@gmail.com' &&
+        decodedToken.email_verified === true &&
+        decodedToken.firebase?.sign_in_provider === 'google.com';
+      const isStoreOwner = store.ownerUid === decodedToken.uid;
+      let hasReviewForStore = false;
+      if (!isGoogleAdmin && !isStoreOwner) {
+        const ownReview = await services.db.collection('reviews')
+          .where('storeId', '==', storeId)
+          .where('customerUid', '==', decodedToken.uid)
+          .limit(1)
+          .get();
+        hasReviewForStore = !ownReview.empty;
+      }
+      if (!isGoogleAdmin && !isStoreOwner && !hasReviewForStore) {
+        throw new HttpError(403, 'Você não tem permissão para atualizar as avaliações deste estabelecimento.');
+      }
+
+      const approvedSnapshot = await services.db.collection('reviews')
+        .where('storeId', '==', storeId)
+        .where('status', '==', 'approved')
+        .get();
+      let count = 0;
+      let sum = 0;
+      approvedSnapshot.forEach(reviewDoc => {
+        const rating = reviewDoc.data().rating;
+        if (typeof rating === 'number' && Number.isInteger(rating) && rating >= 1 && rating <= 5) {
+          count += 1;
+          sum += rating;
+        }
+      });
+      const rating = count ? Math.round((sum / count) * 10) / 10 : 0;
+      await storeRef.update({ rating, reviewCount: count });
+      return res.json({ success: true, storeId, rating, reviewCount: count });
+    } catch (error) {
+      const readable = getReadableError(error);
+      if (error instanceof HttpError) {
+        return res.status(readable.statusCode).json({ error: readable.message });
+      }
+      console.error('Store rating recalculation failed:', error);
+      return res.status(503).json({ error: 'Não foi possível atualizar a média das avaliações agora.' });
+    }
+  });
+
   // Authenticated review photo upload to persistent Firebase Storage.
   app.post('/api/upload-review-photo', async (req: Request, res: Response) => {
     let services: ReturnType<typeof getAdminServices>;
