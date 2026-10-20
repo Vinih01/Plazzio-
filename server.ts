@@ -289,6 +289,17 @@ async function startServer() {
       const orderRef = firestore.collection('orders').doc(orderId);
 
       const order = await firestore.runTransaction(async transaction => {
+        // Check idempotency first so a retry returns the already-created order even if the live
+        // catalog changed after the original transaction committed.
+        const existingOrderSnapshot = await transaction.get(orderRef);
+        if (existingOrderSnapshot.exists) {
+          const existingOrder = existingOrderSnapshot.data() as Order;
+          if (existingOrder.customerUid === decodedToken.uid && existingOrder.clientRequestId === payload.requestId) {
+            return existingOrder;
+          }
+          throw new HttpError(409, 'Este identificador já foi utilizado. Atualize a página e tente novamente.');
+        }
+
         const storeSnapshot = await transaction.get(storeRef);
         if (!storeSnapshot.exists) throw new HttpError(404, 'Estabelecimento não encontrado.');
         const storeData = storeSnapshot.data() as Store;
@@ -355,16 +366,6 @@ async function startServer() {
         if (rawDeliveryFee < 0) throw new HttpError(409, 'A taxa de entrega cadastrada pela loja é inválida.');
         const deliveryFee = payload.fulfillmentMethod === 'delivery' ? roundMoney(rawDeliveryFee) : 0;
         const total = roundMoney(subtotal + deliveryFee);
-
-        // This read and the catalog reads happen before any transaction write.
-        const existingOrderSnapshot = await transaction.get(orderRef);
-        if (existingOrderSnapshot.exists) {
-          const existingOrder = existingOrderSnapshot.data() as Order;
-          if (existingOrder.customerUid === decodedToken.uid && existingOrder.clientRequestId === payload.requestId) {
-            return existingOrder;
-          }
-          throw new HttpError(409, 'Este identificador já foi utilizado. Atualize a página e tente novamente.');
-        }
 
         const now = new Date().toISOString();
         const newOrder: Order = {
