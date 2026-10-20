@@ -34,3 +34,24 @@ The Admin SDK bypasses Firestore Security Rules. Therefore the endpoint itself v
 - Products with configured comboGroups are intentionally rejected by the secure checkout until combo selections can be captured and validated server-side.
 - Photos from the new upload route are stored in Firebase Storage. Legacy images whose URLs point to /uploads/reviews/... may still depend on files from an old server instance and need a separate migration if they are still required.
 - The server response confirms order creation but does not collect or settle online payments. Current payment methods are direct-to-store (Pix, card or cash at delivery), as configured by the store.
+
+## Firestore database targeting (important)
+
+The app's Firebase config uses the named database
+`ai-studio-plazzio-53fc4ac7-7ba6-47aa-8e6f-60e99c984f74`, not `(default)`.
+
+- Root `firebase.json` targets that **named database** for a future reviewed rules deployment.
+- `firebase.emulator.json` is intentionally separate and targets the default Firestore Emulator database so the rule suite can run reproducibly.
+- CI tests the exact `firestore.rules` source against the emulator; it does **not** connect to or prove rules on the live named database.
+- Before deploying, verify the active Firebase project and named database in the Firebase Console/CLI. Do not run a deploy command against a different project or change the root database ID without review.
+- No deployment of rules is performed by this PR.
+
+## Current code status
+
+The public marketplace and merchant startup code no longer inserts local demo stores/products into public results or selects a demo store as a new merchant's default. Existing demo documents that may already be in Firestore are not automatically deleted; review those documents separately and only remove confirmed demo data after a backup.
+
+The `/admin` UI route is guarded by the same verified Google identity expected by the Firestore rules. This UI guard complements but does not replace server/rule authorization.
+
+Order state updates are constrained to valid transitions, with a corresponding history append by the authenticated actor. A client cannot create orders directly or self-mark an order as paid through Firestore rules.
+
+The secure endpoints are implemented in the repository, but there has been no authenticated end-to-end test against the named Firestore database or deployed Storage bucket. Configure ADC and least-privilege IAM, then perform a test order/photo/rating recalculation in a non-production test store before enabling live merchants.
