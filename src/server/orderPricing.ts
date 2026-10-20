@@ -2,7 +2,7 @@ import type {
   CartItem,
   GlobalOptionGroupTemplate,
   Product,
-  ProductOptionGroup,
+  ProductVariant,
   SelectedAddOn,
   SelectedOptionGroup,
   SelectedOptionItem,
@@ -61,7 +61,7 @@ export function getDefaultOptionTemplateIds(categoryName?: string, productName?:
     return ['burger-tipos-pao', 'burger-ponto-carne', 'burger-molhos-especiais', 'burger-adicionais-extras', 'burger-retirar-ingredientes'];
   }
   if (matches('marmit', 'refeiç', 'refeic', 'almoço', 'almoco', 'prato') || product.includes('prato feito')) {
-    return ['marmita-proteina-principal', 'marmita-base-arroz-feijao', 'marmita-guarnicoes', 'utensilios_descartaveis'];
+    return ['marmita-proteina-principal', 'marmita-base-arroz-feijao', 'marmita-guarnicoes', 'utensilios-descartaveis'];
   }
   if (matches('salgado', 'pastel', 'esfiha') || product.includes('coxinha')) {
     return ['salgados-recheios-salgados', 'burger-molhos-especiais'];
@@ -114,7 +114,7 @@ export function calculateTrustedCartItem(
   const quantity = requireQuantity(request.quantity, product.name || 'produto');
   const basePrice = requirePrice(product.basePrice, product.name || 'produto');
 
-  let selectedVariant: Product['variants'][number] | undefined;
+  let selectedVariant: ProductVariant | undefined;
   if (Array.isArray(product.variants) && product.variants.length > 0) {
     if (!request.selectedVariantId) {
       throw new Error(`Selecione o tamanho ou a variante de "${product.name}".`);
@@ -129,6 +129,10 @@ export function calculateTrustedCartItem(
   }
 
   const submittedGroups = request.selectedOptionGroups || [];
+  const submittedGroupKeys = submittedGroups.map(group => group.templateId || group.groupId);
+  if (new Set(submittedGroupKeys).size !== submittedGroupKeys.length) {
+    throw new Error('O pedido contém grupos de opções duplicados.');
+  }
   const resolvedGroups: SelectedOptionGroup[] = [];
   const optionIdsIncludedInGroups = new Set<string>();
   const templateOptionIdsIncludedInGroups = new Set<string>();
@@ -136,7 +140,10 @@ export function calculateTrustedCartItem(
 
   const persistedGroups = product.optionGroups || [];
   if (persistedGroups.length > 0) {
-    const unknownGroup = submittedGroups.find(selection => !persistedGroups.some(group => group.id === selection.groupId));
+    const unknownGroup = submittedGroups.find(selection => {
+      const group = persistedGroups.find(candidate => candidate.id === selection.groupId);
+      return !group || (!!selection.templateId && selection.templateId !== group.templateId);
+    });
     if (unknownGroup) {
       throw new Error(`Uma opção selecionada para "${product.name}" não pertence ao cardápio atual. Atualize o cardápio e tente novamente.`);
     }
