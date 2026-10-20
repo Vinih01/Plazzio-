@@ -9,10 +9,9 @@ import {
   query, 
   where 
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { Review, Store } from '../types';
 import { removeUndefinedFields } from '../lib/utils';
-import { updateStore } from './storeService';
 
 const REVIEWS_COLLECTION = 'reviews';
 
@@ -233,28 +232,45 @@ export async function getApprovedReviews(): Promise<Review[]> {
  * Recalculate average rating and review count from approved reviews and save to store doc.
  */
 export async function recalculateStoreRating(storeId: string): Promise<{ rating: number; reviewCount: number }> {
-  try {
+  const calculateLocalFallback = async () => {
     const approvedReviews = await getReviewsByStore(storeId);
-    const count = approvedReviews.length;
-    let avg = 0;
-    if (count > 0) {
-      const sum = approvedReviews.reduce((acc, r) => acc + (r.rating || 0), 0);
-      avg = Math.round((sum / count) * 10) / 10;
+    const reviewCount = approvedReviews.length;
+    const rating = reviewCount
+      ? Math.round((approvedReviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount) * 10) / 10
+      : 0;
+    return { rating, reviewCount };
+  };
+
+  try {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      // A local calculation is useful to render the current page, but it is not persisted.
+      return await calculateLocalFallback();
     }
 
-    // Only attempt update if the user has permission; the UI now also computes this dynamically for robustness.
-    try {
-        await updateStore(storeId, {
-            rating: avg > 0 ? avg : undefined,
-            reviewCount: count > 0 ? count : undefined,
-        });
-    } catch (e) {
-        console.warn('Recalculate: Could not update store (expected if not owner/admin):', e);
+    const token = await currentUser.getIdToken();
+    const response = await fetch('/api/reviews/recalculate-rating', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ storeId }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      rating?: number;
+      reviewCount?: number;
+      error?: string;
+    };
+
+    if (!response.ok || typeof result.rating !== 'number' || typeof result.reviewCount !== 'number') {
+      console.warn('Server-side review rating recalculation was not persisted:', result.error || response.status);
+      return await calculateLocalFallback();
     }
 
-    return { rating: avg, reviewCount: count };
-  } catch (err) {
-    console.warn('Could not recalculate store rating:', err);
-    return { rating: 0, reviewCount: 0 };
+    return { rating: result.rating, reviewCount: result.reviewCount };
+  } catch (error) {
+    console.warn('Could not recalculate store rating through the secure endpoint:', error);
+    return calculateLocalFallback();
   }
 }
