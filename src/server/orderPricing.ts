@@ -107,6 +107,9 @@ export function calculateTrustedCartItem(
   if (product.available !== true || product.isDemo === true) {
     throw new Error(`O produto "${product.name || product.id}" não está disponível para venda.`);
   }
+  if (Array.isArray(product.comboGroups) && product.comboGroups.length > 0) {
+    throw new Error(`O produto "${product.name}" usa composição de combo que ainda não está habilitada no checkout seguro. Peça ao estabelecimento para revisar esse produto.`);
+  }
   if (request.productId !== product.id && request.productId !== undefined) {
     throw new Error('O produto solicitado não corresponde ao catálogo.');
   }
