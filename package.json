@@ -13,7 +13,7 @@
     "test:pricing": "tsx --test src/server/orderPricing.test.ts",
     "test": "npm run test:pricing && npm run test:rules",
     "test:rules:unit": "tsx --test src/server/firestoreRules.integration.test.ts",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-plazzio-rules \"npm run test:rules:unit\""
+    "test:rules": "firebase emulators:exec --config firebase.emulator.json --only firestore --project demo-plazzio-rules \"npm run test:rules:unit\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
