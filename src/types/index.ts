@@ -281,6 +281,8 @@ export interface SelectedAddOn {
 
 export interface SelectedOptionItem {
   id: string;
+  /** Stable option ID from the persisted product group or global template. */
+  templateOptionId?: string;
   name: string;
   price: number;
   quantity?: number;
@@ -290,6 +292,8 @@ export interface SelectedOptionItem {
 
 export interface SelectedOptionGroup {
   groupId: string;
+  /** Stable ID of the global template when this group was generated from a shared default. */
+  templateId?: string;
   groupName: string;
   selectedOptions: SelectedOptionItem[];
 }
@@ -340,6 +344,35 @@ export interface DeliveryAddress {
   city: string;
   state: string;
   zipCode: string;
+}
+
+/**
+ * Untrusted checkout payload. Prices, names, images, totals, and order status are intentionally
+ * omitted: the server reconstructs them from the current Firestore catalog.
+ */
+export interface CreateOrderItemRequest {
+  productId: string;
+  quantity: number;
+  selectedVariantId?: string;
+  selectedAddOns?: Array<{ id: string; quantity: number }>;
+  selectedOptionGroups?: Array<{
+    groupId: string;
+    templateId?: string;
+    selectedOptionIds: Array<{ id: string; templateOptionId?: string }>;
+  }>;
+  notes?: string;
+}
+
+export interface CreateOrderRequest {
+  requestId: string;
+  storeId: string;
+  items: CreateOrderItemRequest[];
+  fulfillmentMethod: FulfillmentMethod;
+  deliveryAddress?: DeliveryAddress;
+  customerName: string;
+  customerPhone: string;
+  paymentMethod: PaymentMethod;
+  notes?: string;
 }
 
 export interface Order {
