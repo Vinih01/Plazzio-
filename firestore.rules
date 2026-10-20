@@ -102,13 +102,9 @@ service cloud.firestore {
           isStoreOwner(resource.data.storeId)
         )
       );
-      allow create: if isSignedIn() &&
-        isValidId(orderId) &&
-        incoming().customerUid == request.auth.uid &&
-        incoming().storeId is string &&
-        incoming().storeOwnerUid == get(/databases/$(database)/documents/stores/$(incoming().storeId)).data.ownerUid &&
-        isPublishedStore(incoming().storeId) &&
-        incoming().orderStatus == 'pending_confirmation';
+      // Order totals and item prices currently come from the browser. Keep direct client creation
+      // disabled until an authenticated server endpoint recalculates prices from Firestore catalog data.
+      allow create: if false;
       allow update: if (
         // Store owner advancing order workflow
         (isSignedIn() &&
@@ -163,8 +159,7 @@ service cloud.firestore {
 
     // ADMINS LIST
     match /admins/{adminId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin() || (isSignedIn() && request.auth.token.email == 'mapwiser@gmail.com');
+      allow read, write: if isAdmin();
     }
 
     // STORE SUBCOLLECTIONS
