@@ -27,7 +27,7 @@ import { Store } from './types';
 import { getMerchantStores, getStoreById } from './services/storeService';
 
 function AppContent() {
-  const { currentUser, role, isAdmin } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const [currentRoute, setCurrentRoute] = useState<string>(() => {
     const hash = window.location.hash.replace('#', '');
     return hash || '/';
